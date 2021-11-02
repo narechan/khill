@@ -1,0 +1,72 @@
+Khill calculates the effective number of genomes in a pangenome set using 
+Hill numbers.
+
+## QUICK START ##
+
+Run Khill on a single set of genomes:
+
+khill -i test_genomes/ -k 19 -m 1 -p 10 -o test_output/
+
+
+## INTRODUCTION TO NECK ##
+
+Khill is a program that leverages key concepts from mathematical ecology 
+such as the beta diversity and the effective number of communities (Hill numbers) 
+to measure the genomic novelty / diversity inherent in a set of genomes. 
+
+Khill is written in PERL. All components are free and available through 
+the GNU GPL.
+
+## MAIN PROGRAMS ##
+
+Khill is the main program.
+We will be adding other components in subsequent versions.
+
+## INSTALLATION ##
+
+The khill algorithm is implemented in pure PERL.
+It requires a few modules which can be installed via cpan as follows:
+
+      cpanm 
+	Parallel::ForkManager \
+	Getopt::Std
+   
+## EXECUTING NECK ON THE TEST DATA ##
+
+The test data included with the distribution are a set of 10 staph genomes.
+The program can be run like this on the included data:
+
+khill -i test_genomes/ -k 19 -m 1 -p 10 -o test_output/
+
+This command will generate multiple files that are detailed below in the 
+section on output. 
+
+Details on options available to khill:
+	-i directory containing your genome fasta files (one genome per file) 
+	-o path to the output directory (will be created)
+	-k k-mer size
+	-m k-mer overlap. m=1 will use all overlapping k-mers. m=2 will sample 
+	   every other overlapping k-mer and so on.
+	-p the number of processors to use in parallel. Note that these are 
+	   forks that parallelize the beta entropy / diversity for each genome.
+
+## OUTPUT ##
+
+Khill generates the following data:
+
+stats.out
+	uniqkmers --> the number of uniq kmers in the dataset
+	allkmers --> the number of kmers in the dataset
+	betaEnt --> the sum of the beta entropies of all the genomes
+	betaDiv --> the Hill number (exponent of the beta entropy and interpreted 
+		as the effective number of genomes)
+
+{genome_name}.betaent
+	A file for each genome that outputs the contribution of that genome 
+	to the overall beta diversity / entropy.
+
+	Fields: 1. genome name
+		2. beta entropy
+		3. kullback leibler divergence
+		4. genome weight
+

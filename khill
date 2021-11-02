@@ -1,0 +1,147 @@
+#!/usr/bin/perl
+
+use Getopt::Std;
+use Parallel::ForkManager;
+use strict;
+
+my %opts = ();
+getopts ('i:o:k:p:s:m:', \%opts);
+my $indir  = $opts{'i'}; #directory of genomes; sequence line must be on one line
+my $outdir = $opts{'o'}; #directory with output of run
+my $kmer = $opts{'k'};   #kmer size
+my $motion = $opts{'m'}; #defined kmer overlap; m=1 will move kmers along on nuc at time and so on
+my $procs = $opts{'p'};  #forks
+
+`mkdir -p $outdir`;
+
+###READ and INITALIZE###
+
+# genomes
+opendir (D, "$indir");
+my @genomes = sort (readdir (D));
+shift @genomes;
+shift @genomes;
+closedir (D);
+my $gcount = @genomes;
+
+# kmer counting
+my $fkmers = {};
+my $kmers = {};
+my $allkmers = 0;
+my @allkmers;
+my $kmersperg = {};
+
+foreach my $genome (@genomes){
+    print STDERR "Counting $genome\n";
+    my $id;
+    my $seq;
+    my $len;
+    open (FASTA, "$indir/$genome");
+    while (my $line =<FASTA>){
+        if ($line =~m/^>(.*)/){
+            $id = $1;
+        }
+        else{
+	    my $seqa = $line;
+	    $seq     = uc($seqa);
+	    
+	    my $cnter = 1;
+	    while (length $seq >= $kmer){
+		my $frag = substr $seq, 0, $kmer;
+		
+		# disallow any string with unknown bases
+		if ($frag =~m/[BDEFHIJKLMNOPQRSUVWXYZ]/i){
+		    substr $seq, 0, $motion, '';
+		    $cnter += $motion;
+		}
+		else{
+		    $kmers->{$frag}->{$genome}++;
+		    $allkmers++;
+		    $kmersperg->{$genome}++;
+		    
+		    substr $seq, 0, $motion, '';
+		    $cnter += $motion;
+		}
+	    }
+	}
+    }
+}
+
+open (MAST, ">$outdir/stats.out");
+my $uniqkmers = keys %$kmers;
+print MAST "uniqkmers=$uniqkmers\n";
+print MAST "allkmers=$allkmers\n";
+
+# KLdiv
+my $pm = Parallel::ForkManager->new($procs);
+foreach my $sg (@genomes){
+    $pm->start and next;
+    print STDERR "Calculating KL $sg\n";
+    my $kl = kl ($sg, $kmers, $kmersperg, \@genomes, $allkmers); #4th arg is all genomes in sampled pan
+    my $weight = ($kmersperg->{$sg} / $allkmers);
+    my $be = $kl * $weight;
+    open (BE, ">$outdir/$sg.betaent");
+    print BE "$sg\t$be\t$kl\t$weight\n";
+    close (BE);
+    $pm->finish;
+}
+$pm->wait_all_children;
+
+# effective number of genomes (hill number for beta diversity)
+my $betaent = 0;
+foreach my $sg (@genomes){
+    open (CE, "$outdir/$sg.betaent");
+    while (my $line = <CE>){
+	chomp $line;
+	my @line = split (/\t/, $line);
+	$betaent += $line[1];
+    }
+    close (CE);
+}
+my $betadiv = exp ($betaent);
+print MAST "betaEnt=$betaent\n";
+print MAST "betaDiv=$betadiv\n";
+close (MAST);
+
+#####SUBS####
+    
+sub kl {
+    my $g = shift;
+    my $kmers = shift;
+    my $kpg = shift;
+    my $sg = shift;
+    my $allk = shift;
+    my @sg = @$sg;
+    
+    my $kl = 0;
+    foreach my $uniqmer (keys %$kmers){
+	
+	# a particular kmer in a particular genome
+	my $psi = $kmers->{$uniqmer}->{$g} / $kpg->{$g};
+
+	# heuristic
+	next if ($psi == 0);
+
+	# a particular kmer in the sampled pan genome
+	my $pts = 0;
+	foreach my $subgs (@sg){
+	    $pts += $kmers->{$uniqmer}->{$subgs};
+	}
+	my $pss = $pts / $allk;
+	
+	# kl divergence
+	my $kli = $psi * (log($psi/$pss));
+	$kl += $kli;
+    }
+    return ($kl);
+}
+
+sub log2 {
+    my $n = shift;
+    return log($n)/log(2);
+}
+   
+sub log10 {
+    my $n = shift;
+    return log($n)/log(10);
+}

@@ -1,0 +1,5 @@
+Welcome to khill. Khill calculates genome compression/diversity using Hill 
+numbers. It measures the scale of genomic novelty in a pangenome.
+
+This repository contains free software (GNU GPL).
+Feel free to modify.
