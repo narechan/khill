@@ -5,7 +5,7 @@ Hill numbers.
 
 Run Khill on a single set of genomes:
 
-khill -i test_genomes/ -k 19 -m 1 -p 10 -o test_output/
+khill -i test_genomes/ -k 19 -m 1 -p 10 -n 100 -s 1e999 -o test_output/
 
 
 ## INTRODUCTION TO NECK ##
@@ -29,6 +29,7 @@ It requires a few modules which can be installed via cpan as follows:
 
       cpanm 
 	Parallel::ForkManager \
+	Digest::MurmurHash3 qw( murmur128_x64 ) \
 	Getopt::Std
    
 ## EXECUTING NECK ON THE TEST DATA ##
@@ -36,19 +37,25 @@ It requires a few modules which can be installed via cpan as follows:
 The test data included with the distribution are a set of 10 staph genomes.
 The program can be run like this on the included data:
 
-khill -i test_genomes/ -k 19 -m 1 -p 10 -o test_output/
+khill -i test_genomes/ -k 19 -m 1 -p 10 -n 100 -s 1e999 -o test_output/
 
 This command will generate multiple files that are detailed below in the 
 section on output. 
 
 Details on options available to khill:
-	-i directory containing your genome fasta files (one genome per file) 
+	-i directory containing your genome fasta files (one genome per file)
+	   all sequence must be on one line 
 	-o path to the output directory (will be created)
 	-k k-mer size
 	-m k-mer overlap. m=1 will use all overlapping k-mers. m=2 will sample 
 	   every other overlapping k-mer and so on.
 	-p the number of processors to use in parallel. Note that these are 
 	   forks that parallelize the beta entropy / diversity for each genome.
+	-n is the sketch depth. For example if set to 100, the program will do a 
+	   1/100 k-bottom sketch in murmur hashes
+	-s is the limit on the number of k-mers to analyze. If analysing whole 
+	   genomes set to arbitarily large number. If analyzing fasta read files 
+	   set to the max number of k-mers you want to stream.   
 
 ## OUTPUT ##
 
