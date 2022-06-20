@@ -2,69 +2,125 @@
 
 use Getopt::Std;
 use Parallel::ForkManager;
+use Digest::MurmurHash3 qw( murmur128_x64 );
 use strict;
 
 my %opts = ();
-getopts ('i:o:k:p:s:m:', \%opts);
+getopts ('i:o:k:p:m:n:c:s:', \%opts);
 my $indir  = $opts{'i'}; #directory of genomes; sequence line must be on one line
 my $outdir = $opts{'o'}; #directory with output of run
 my $kmer = $opts{'k'};   #kmer size
 my $motion = $opts{'m'}; #defined kmer overlap; m=1 will move kmers along on nuc at time and so on
+my $number = $opts{'n'}; #sampling rate
 my $procs = $opts{'p'};  #forks
+my $cannon = $opts{'c'}; #set to 1 if you want cannoical kmers (rev comp taken into account)
+my $kmerlim = $opts{'s'}; #limit of kmers to analyze
 
 `mkdir -p $outdir`;
 
 ###READ and INITALIZE###
 
 # genomes
+my @genomes;
+my $cflag = {};
 opendir (D, "$indir");
-my @genomes = sort (readdir (D));
-shift @genomes;
-shift @genomes;
+while (readdir (D)){
+    if ($_ =~m/^\./){
+	next;
+    }
+    elsif ($_ =~m/\.gz$/){
+	$_ =~s/\.gz$//;
+	$cflag->{$_} = 1;
+	push (@genomes, $_)
+    }
+    else{
+	push (@genomes, $_)
+    }
+}
 closedir (D);
-my $gcount = @genomes;
 
-# kmer counting
-my $fkmers = {};
-my $kmers = {};
-my $allkmers = 0;
-my @allkmers;
-my $kmersperg = {};
+# sampling rate
+my $maxhash = 2**64;
+my $thresh  = $maxhash / $number;
 
+my $pm = Parallel::ForkManager->new($procs);
 foreach my $genome (@genomes){
+    $pm->start and next;
     print STDERR "Counting $genome\n";
+    
     my $id;
     my $seq;
-    my $len;
+    my $kc = 0;
+    my $signal = 0;
     open (FASTA, "$indir/$genome");
+    open (KH, ">$outdir/$genome.hashes");
     while (my $line =<FASTA>){
+	chomp $line;
         if ($line =~m/^>(.*)/){
             $id = $1;
         }
         else{
-	    my $seqa = $line;
-	    $seq     = uc($seqa);
-	    
-	    my $cnter = 1;
-	    while (length $seq >= $kmer){
-		my $frag = substr $seq, 0, $kmer;
-		
-		# disallow any string with unknown bases
-		if ($frag =~m/[BDEFHIJKLMNOPQRSUVWXYZ]/i){
-		    substr $seq, 0, $motion, '';
-		    $cnter += $motion;
-		}
-		else{
-		    $kmers->{$frag}->{$genome}++;
-		    $allkmers++;
-		    $kmersperg->{$genome}++;
+            my $seqa = $line;
+            $seq     = uc($seqa);
+
+            my $cnter = 1;
+            while (length $seq >= $kmer){
+		my $cfrag;
+		my $rcfrag;
+                my $ffrag = substr $seq, 0, $kmer;
+
+                # disallow any string with unknown bases
+                if ($ffrag =~m/[BDEFHIJKLMNOPQRSUVWXYZ]/i){
+                    substr $seq, 0, $motion, '';
+                    $cnter += $motion;
+                }
+                else{
+		    if ($cannon == 1){
+			$rcfrag = revdnacomp ($ffrag);
+			if ($ffrag < $rcfrag){
+			    $cfrag = $ffrag;
+			}
+			else{
+			    $cfrag = $rcfrag;
+			}
+		    }
+		    else{
+			$cfrag = $ffrag;
+		    }
+			
+		    my $hash = murmur128_x64 ($cfrag, 460);
+		    (print KH "$hash\n") if ($hash < $thresh);
+		    $kc++;
 		    
-		    substr $seq, 0, $motion, '';
-		    $cnter += $motion;
-		}
-	    }
-	}
+                    substr $seq, 0, $motion, '';
+                    $cnter += $motion;
+                }
+		($signal++) if ($kc >= $kmerlim);
+		last if ($signal > 0);
+            }
+        }
+	last if ($signal > 0);
     }
+    close (FASTA);
+    close (KH);
+    $pm->finish;
+}
+$pm->wait_all_children;
+
+# collate hashes
+my $kmers = {};
+my $allkmers = 0;
+my $kmersperg = {};
+foreach my $g (@genomes){
+    print STDERR "Collating hashes for $g\n";
+    open (H, "$outdir/$g.hashes");
+    while (my $h = <H>){
+        chomp $h;
+        $kmers->{$h}->{$g}++;
+        $kmersperg->{$g}++;
+        $allkmers++;
+    }
+    close (H);
 }
 
 open (MAST, ">$outdir/stats.out");
@@ -144,4 +200,12 @@ sub log2 {
 sub log10 {
     my $n = shift;
     return log($n)/log(10);
+}
+
+sub revdnacomp {
+    my $dna = shift;
+    my $revcomp = reverse($dna);
+
+    $revcomp =~ tr/ACGTacgt/TGCAtgca/;
+    return $revcomp;
 }
